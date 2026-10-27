@@ -1,0 +1,81 @@
+name: Build Tailchat Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout upstream Tailchat (mobile client)
+        uses: actions/checkout@v4
+        with:
+          repository: msgbyte/tailchat
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.18.0
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK + NDK 23.1.7779620
+        uses: android-actions/setup-android@v3
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0" "ndk;23.1.7779620"
+
+      - name: Strip Huawei AGConnect + Getui-Huawei (unavailable on public runners)
+        working-directory: client/mobile/android
+        run: |
+          sed -i "/com.huawei.agconnect:agcp/d" build.gradle
+          sed -i "/apply plugin: 'com.huawei.agconnect'/d" app/build.gradle
+          sed -i "/com.huawei.agconnect:agconnect-core/d" app/build.gradle
+          sed -i "/com.huawei.hms:push/d" app/build.gradle
+          sed -i "/com.getui.opt:hwp/d" app/build.gradle
+          echo "stripped vendor plugins"
+
+      - name: Prepare env + debug keystore
+        working-directory: client/mobile
+        run: |
+          cp .env.example .env
+          rm -f .npmrc
+          keytool -genkeypair -v -keystore android/app/debug.keystore \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug, O=Android, C=US"
+
+      - name: Install mobile deps
+        working-directory: client/mobile
+        run: |
+          corepack enable || true
+          yarn install --ignore-engines || yarn install --ignore-scripts
+
+      - name: Gradle assembleRelease (fallback assembleDebug)
+        working-directory: client/mobile/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon -x lint \
+            || ./gradlew assembleDebug --no-daemon -x lint
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          find client/mobile/android/app/build/outputs -name "*.apk" -exec cp {} out/ \;
+          ls -la out
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tailchat-apk
+          path: out/*.apk
+          if-no-files-found: warn
