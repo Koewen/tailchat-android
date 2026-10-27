@@ -3,12 +3,15 @@ name: Build Tailchat Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Checkout upstream Tailchat (mobile client)
         uses: actions/checkout@v4
@@ -16,7 +19,7 @@ jobs:
           repository: msgbyte/tailchat
           fetch-depth: 1
 
-      - name: Setup Node
+      - name: Setup Node 18
         uses: actions/setup-node@v4
         with:
           node-version: 18.18.0
@@ -27,38 +30,48 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Setup Android SDK + NDK 23.1.7779620
-        uses: android-actions/setup-android@v3
-      - name: Install SDK packages
+      # 不用 android-actions/setup-android（与 runner 预装 SDK 版本冲突，会报
+      # "Wrong version in preinstalled sdkmanager" 并调用已废弃的 `sdkmanager tools` 失败）。
+      # 直接复用 runner 预装的 sdkmanager 手动安装所需包。
+      - name: Install Android SDK packages (NDK 23.1.7779620 etc.)
         run: |
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
           sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0" "ndk;23.1.7779620"
 
-      - name: Strip Huawei AGConnect + Getui-Huawei (unavailable on public runners)
+      - name: Strip Huawei vendor push (unavailable on public GitHub runners)
         working-directory: client/mobile/android
         run: |
-          sed -i "/com.huawei.agconnect:agcp/d" build.gradle
+          sed -i "/url \"https:\/\/developer.huawei.com\/repo\/\"/d" build.gradle
+          sed -i "/classpath(\"com.huawei.agconnect:agcp:1.6.0.300\")/d" build.gradle
           sed -i "/apply plugin: 'com.huawei.agconnect'/d" app/build.gradle
+          sed -i "/com.getui.opt:hwp/d" app/build.gradle
           sed -i "/com.huawei.agconnect:agconnect-core/d" app/build.gradle
           sed -i "/com.huawei.hms:push/d" app/build.gradle
-          sed -i "/com.getui.opt:hwp/d" app/build.gradle
-          echo "stripped vendor plugins"
+          echo "stripped huawei vendor"
 
       - name: Prepare env + debug keystore
         working-directory: client/mobile
         run: |
           cp .env.example .env
           rm -f .npmrc
+          sed -i 's/^TAILCHAT_UPLOAD_STORE_FILE=.*/TAILCHAT_UPLOAD_STORE_FILE=debug.keystore/' .env
+          sed -i 's/^TAILCHAT_UPLOAD_STORE_PASSWORD=.*/TAILCHAT_UPLOAD_STORE_PASSWORD=android/' .env
+          sed -i 's/^TAILCHAT_UPLOAD_KEY_ALIAS=.*/TAILCHAT_UPLOAD_KEY_ALIAS=androiddebugkey/' .env
+          sed -i 's/^TAILCHAT_UPLOAD_KEY_PASSWORD=.*/TAILCHAT_UPLOAD_KEY_PASSWORD=android/' .env
           keytool -genkeypair -v -keystore android/app/debug.keystore \
             -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=Android Debug, O=Android, C=US"
 
+      - name: Install yarn
+        run: npm install -g yarn@1.22.19
+
       - name: Install mobile deps
         working-directory: client/mobile
         run: |
-          corepack enable || true
-          yarn install --ignore-engines || yarn install --ignore-scripts
+          yarn install --frozen-lockfile --network-timeout 600000 \
+            || yarn install --network-timeout 600000
 
       - name: Gradle assembleRelease (fallback assembleDebug)
         working-directory: client/mobile/android
