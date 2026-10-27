@@ -53,7 +53,7 @@ jobs:
               s = re.sub(r"maven\s*\{\s*url\s*[\"']https://developer\.huawei\.com/repo/[\"']\s*\}", "", s)
               # 删除 agconnect classpath / plugin / deps（单行）
               s = re.sub(r"classpath\([\"']com\.huawei\.agconnect:agcp[^\n]*\n", "", s)
-              s = re.sub(r"apply plugin:\s*[\"']com\.huawei\.agconnect[\"']\n", "", s)
+              s = re.sub(r"apply plugin:\s*[\"']com\.huawei\.agconnect[\"'][^\n]*\n", "", s)
               s = re.sub(r"[\"']com\.huawei\.agconnect:agconnect-core[^\n]*\n", "", s)
               s = re.sub(r"[\"']com\.huawei\.hms:push[^\n]*\n", "", s)
               s = re.sub(r"[\"']com\.getui\.opt:hwp[^\n]*\n", "", s)
