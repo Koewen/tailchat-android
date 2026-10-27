@@ -54,9 +54,12 @@ jobs:
               # 删除 agconnect classpath / plugin / deps（单行）
               s = re.sub(r"classpath\([\"']com\.huawei\.agconnect:agcp[^\n]*\n", "", s)
               s = re.sub(r"apply plugin:\s*[\"']com\.huawei\.agconnect[\"'][^\n]*\n", "", s)
-              s = re.sub(r"[\"']com\.huawei\.agconnect:agconnect-core[^\n]*\n", "", s)
-              s = re.sub(r"[\"']com\.huawei\.hms:push[^\n]*\n", "", s)
-              s = re.sub(r"[\"']com\.getui\.opt:hwp[^\n]*\n", "", s)
+              # 注意：必须从 `implementation` 关键字整行删除，否则行首残留的
+              # `implementation ` 会与下一行粘连，导致 dependencies 块提前闭合，
+              # 报 "Could not get unknown property 'implementation'"（第 205 行）。
+              s = re.sub(r"^\s*implementation\s*[\"']com\.huawei\.agconnect:agconnect-core[^\n]*\n", "", s, flags=re.M)
+              s = re.sub(r"^\s*implementation\s*[\"']com\.huawei\.hms:push[^\n]*\n", "", s, flags=re.M)
+              s = re.sub(r"^\s*implementation\s*[\"']com\.getui\.opt:hwp[^\n]*\n", "", s, flags=re.M)
               open(fn, 'w', encoding='utf-8').write(s)
               print("stripped", fn)
           PY
